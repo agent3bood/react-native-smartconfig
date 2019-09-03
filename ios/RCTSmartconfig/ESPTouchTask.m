@@ -15,19 +15,16 @@
 #import "ESPUDPSocketServer.h"
 #import "ESP_NetUtil.h"
 #import "ESPTouchTaskParameter.h"
-#import <UIKit/UIKit.h>
-#import <CoreData/CoreData.h>
 
 #define ONE_DATA_LEN    3
-#define ESPTOUCH_VERSION    @"v0.3.5.2"
 
 @interface ESPTouchTask ()
 
-@property (nonatomic,strong) NSString *_apSsid;
+@property (nonatomic,strong) NSData *_apSsid;
 
-@property (nonatomic,strong) NSString *_apBssid;
+@property (nonatomic,strong) NSData *_apBssid;
 
-@property (nonatomic,strong) NSString *_apPwd;
+@property (nonatomic,strong) NSData *_apPwd;
 
 @property (atomic,assign) BOOL _isSuc;
 
@@ -63,7 +60,7 @@
 
 @implementation ESPTouchTask
 
-- (id) initWithApSsid: (NSString *)apSsid andApBssid: (NSString *) apBssid andApPwd: (NSString *)apPwd andIsSsidHiden: (BOOL) isSsidHidden
+- (id)initWithApSsid:(NSString *)apSsid andApBssid:(NSString *)apBssid andApPwd:(NSString *)apPwd andAES:(ESPAES *)aes
 {
     NSLog(@"Welcome Esptouch %@",ESPTOUCH_VERSION);
     if (apSsid==nil||[apSsid isEqualToString:@""])
@@ -84,9 +81,14 @@
         {
             NSLog(@"ESPTouchTask init");
         }
-        self._apSsid = apSsid;
-        self._apPwd = apPwd;
-        self._apBssid = apBssid;
+        if (aes == nil) {
+            self._apSsid = [ESP_ByteUtil getBytesByNSString:apSsid];
+            self._apPwd = [ESP_ByteUtil getBytesByNSString:apPwd];
+        } else {
+            self._apSsid = [aes AES128EncryptData:[ESP_ByteUtil getBytesByNSString:apSsid]];
+            self._apPwd = [aes AES128EncryptData:[ESP_ByteUtil getBytesByNSString:apPwd]];
+        }
+        self._apBssid = [ESP_NetUtil parseBssid2bytes:apBssid];
         self._parameter = [[ESPTaskParameter alloc]init];
         
         // check whether IPv4 and IPv6 is supported
@@ -126,7 +128,7 @@
         self._isWakeUp = NO;
         self._isExecutedAlready = NO;
         self._condition = [[NSCondition alloc]init];
-        self._isSsidHidden = isSsidHidden;
+        self._isSsidHidden = YES;
         self._esptouchResultArray = [[NSMutableArray alloc]init];
         self._bssidTaskSucCountDict = [[NSMutableDictionary alloc]init];
         self._esptouchResultArrayCondition = [[NSCondition alloc]init];
@@ -134,9 +136,18 @@
     return self;
 }
 
-- (id) initWithApSsid: (NSString *)apSsid andApBssid: (NSString *) apBssid andApPwd: (NSString *)apPwd andIsSsidHiden: (BOOL) isSsidHidden andTimeoutMillisecond: (int) timeoutMillisecond
+- (id) initWithApSsid: (NSString *)apSsid andApBssid: (NSString *) apBssid andApPwd: (NSString *)apPwd {
+    return [self initWithApSsid:apSsid andApBssid:apBssid andApPwd:apPwd andAES:nil];
+}
+
+- (id) initWithApSsid: (NSString *)apSsid andApBssid: (NSString *) apBssid andApPwd: (NSString *)apPwd andIsSsidHiden: (BOOL) isSsidHidden
 {
-    ESPTouchTask *_self = [self initWithApSsid:apSsid andApBssid:apBssid andApPwd:apPwd andIsSsidHiden:isSsidHidden];
+    return [self initWithApSsid:apSsid andApBssid:apBssid andApPwd:apPwd];
+}
+
+- (id) initWithApSsid: (NSString *)apSsid andApBssid: (NSString *) apBssid andApPwd: (NSString *)apPwd andTimeoutMillisecond: (int) timeoutMillisecond
+{
+    ESPTouchTask *_self = [self initWithApSsid:apSsid andApBssid:apBssid andApPwd:apPwd];
     if (_self)
     {
         [_self._parameter setWaitUdpTotalMillisecond:timeoutMillisecond];
@@ -249,8 +260,8 @@
             NSLog(@"ESPTouchTask __listenAsyn() start an asyn listen task, current thread is: %@", [NSThread currentThread]);
         }
         NSTimeInterval startTimestamp = [[NSDate date] timeIntervalSince1970];
-        NSString *apSsidAndPwd = [NSString stringWithFormat:@"%@%@",self._apSsid,self._apPwd];
-        Byte expectOneByte = [ESP_ByteUtil getBytesByNSString:apSsidAndPwd].length + 9;
+//        NSString *apSsidAndPwd = [NSString stringWithFormat:@"%@%@",self._apSsid,self._apPwd];
+        Byte expectOneByte = [self._apSsid length] + [self._apPwd length] + 9;
         if (DEBUG_ON)
         {
             NSLog(@"ESPTouchTask __listenAsyn() expectOneByte: %d",expectOneByte);
@@ -494,6 +505,10 @@
 - (void) setEsptouchDelegate: (NSObject<ESPTouchDelegate> *) esptouchDelegate
 {
     self._esptouchDelegate = esptouchDelegate;
+}
+
+- (void)setPackageBroadcast:(BOOL)broadcast {
+    [self._parameter setBroadcast:broadcast];
 }
 
 @end
